@@ -13,10 +13,15 @@ import { ProgressBar } from '../src/components/ProgressBar';
 import { runDownloadQueue } from '../src/core/downloader';
 import { runDebugQueue } from '../src/core/debugQueue';
 import { purchaseUnlock, restoreUnlock } from '../src/core/revenuecat';
-import { useStore, FREE_TIER_LIMIT, ExportDestination } from '../src/store/useStore';
+import { useStore, FREE_TIER_LIMIT } from '../src/store/useStore';
 
 export default function ProcessingScreen() {
-  const { skipped } = useLocalSearchParams<{ skipped?: string }>();
+  const { skipped, autoStart, startFrom } = useLocalSearchParams<{
+    skipped?: string;
+    autoStart?: string;
+    startFrom?: string;
+  }>();
+
   const {
     jobs,
     memories,
@@ -29,32 +34,47 @@ export default function ProcessingScreen() {
     isPurchased,
     setPurchased,
     debugMode,
+    setProgress,
   } = useStore();
 
-  const [isConfirmed, setIsConfirmed] = useState(false);
-  const [purchasing, setPurchasing] = useState(false);
-  const startedRef = useRef(false);
+  const isResume = autoStart === 'true';
+  const jobOffset = Number(startFrom ?? 0);
 
   const allMemoriesCount = memories.length;
   const skippedCount = parseInt(skipped ?? '0', 10);
-  const needsPaywall = allMemoriesCount > FREE_TIER_LIMIT && !isPurchased;
-  const downloadJobs = needsPaywall ? jobs.slice(0, FREE_TIER_LIMIT) : jobs;
+  const needsPaywall = !isResume && allMemoriesCount > FREE_TIER_LIMIT && !isPurchased;
+
+  // In resume mode: jobs from offset onwards. Otherwise: all or free-tier slice.
+  const downloadJobs = isResume
+    ? jobs.slice(jobOffset)
+    : needsPaywall
+      ? jobs.slice(0, FREE_TIER_LIMIT)
+      : jobs;
   const downloadCount = downloadJobs.length;
+
   const progressRatio =
     progress.total > 0 ? (progress.saved + progress.failed) / progress.total : 0;
+
+  // Skip confirmation screen entirely when resuming after free-tier purchase
+  const [isConfirmed, setIsConfirmed] = useState(isResume);
+  const [purchasing, setPurchasing] = useState(false);
+  const startedRef = useRef(false);
 
   async function startDownload() {
     if (startedRef.current) return;
     startedRef.current = true;
     cancelSignal.cancelled = false;
 
-    const activeJobs = isPurchased ? jobs : jobs.slice(0, FREE_TIER_LIMIT);
+    // Reset progress so the new batch starts fresh
+    if (isResume) {
+      setProgress({ total: downloadJobs.length, saved: 0, failed: 0, active: 0 });
+    }
 
     if (debugMode) {
-      await runDebugQueue(activeJobs, (prog, job) => updateProgress(prog, job), cancelSignal);
+      await runDebugQueue(downloadJobs, (prog, job) => updateProgress(prog, job), cancelSignal);
     } else {
       await runDownloadQueue(
-        activeJobs,
+        downloadJobs,
         exportDestination,
         (prog, job) => updateProgress(prog, job),
         cancelSignal
@@ -72,9 +92,7 @@ export default function ProcessingScreen() {
     setPurchasing(true);
     try {
       const result = await purchaseUnlock();
-      if (result === 'purchased') {
-        setPurchased(true);
-      }
+      if (result === 'purchased') setPurchased(true);
     } catch (err) {
       Alert.alert(
         'Purchase failed',
@@ -94,11 +112,7 @@ export default function ProcessingScreen() {
         setPurchased(true);
         Alert.alert('Purchase restored', 'All your memories will be downloaded.', [{ text: 'OK' }]);
       } else {
-        Alert.alert(
-          'Nothing to restore',
-          'No previous purchase found for this Apple ID.',
-          [{ text: 'OK' }]
-        );
+        Alert.alert('Nothing to restore', 'No previous purchase found for this Apple ID.', [{ text: 'OK' }]);
       }
     } catch {
       Alert.alert('Restore failed', 'Please check your connection and try again.', [{ text: 'OK' }]);
@@ -121,13 +135,12 @@ export default function ProcessingScreen() {
     ]);
   }
 
-  // ── Confirmation + options screen ──────────────────────────────────────────
+  // ── Confirmation screen (skipped entirely in resume mode) ──────────────────
   if (!isConfirmed) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.container}>
 
-          {/* Summary */}
           <View style={styles.summaryBox}>
             <Row label="Memories found" value={allMemoriesCount.toLocaleString()} />
             <Row
@@ -140,17 +153,13 @@ export default function ProcessingScreen() {
             )}
           </View>
 
-          {/* Paywall */}
           {allMemoriesCount > FREE_TIER_LIMIT && (
             <View style={[styles.paywallCard, isPurchased && styles.paywallCardUnlocked]}>
               {isPurchased ? (
                 <>
                   <Text style={styles.paywallUnlockedTitle}>✓ All memories unlocked</Text>
                   {debugMode && (
-                    <TouchableOpacity
-                      onPress={() => setPurchased(false)}
-                      style={styles.debugToggle}
-                    >
+                    <TouchableOpacity onPress={() => setPurchased(false)} style={styles.debugToggle}>
                       <Text style={styles.debugToggleText}>⚙️ [Debug] Simulate not purchased</Text>
                     </TouchableOpacity>
                   )}
@@ -163,13 +172,8 @@ export default function ProcessingScreen() {
                   <Text style={styles.paywallSubtitle}>
                     First {FREE_TIER_LIMIT} free · One-time $0.99 purchase
                   </Text>
-
                   {debugMode ? (
-                    <TouchableOpacity
-                      style={styles.unlockBtn}
-                      onPress={() => setPurchased(true)}
-                      activeOpacity={0.85}
-                    >
+                    <TouchableOpacity style={styles.unlockBtn} onPress={() => setPurchased(true)} activeOpacity={0.85}>
                       <Text style={styles.unlockBtnText}>⚙️ [Debug] Simulate purchase</Text>
                     </TouchableOpacity>
                   ) : (
@@ -186,11 +190,7 @@ export default function ProcessingScreen() {
                           <Text style={styles.unlockBtnText}>Unlock All — $0.99</Text>
                         )}
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={handleRestore}
-                        disabled={purchasing}
-                        style={styles.restoreBtn}
-                      >
+                      <TouchableOpacity onPress={handleRestore} disabled={purchasing} style={styles.restoreBtn}>
                         <Text style={styles.restoreText}>Restore Purchase</Text>
                       </TouchableOpacity>
                     </>
@@ -200,7 +200,6 @@ export default function ProcessingScreen() {
             </View>
           )}
 
-          {/* Destination picker */}
           <Text style={styles.sectionLabel}>Save memories to</Text>
           <View style={styles.pickerRow}>
             <DestOption
@@ -225,15 +224,9 @@ export default function ProcessingScreen() {
             </Text>
           </View>
 
-          <TouchableOpacity
-            style={styles.cta}
-            onPress={() => setIsConfirmed(true)}
-            activeOpacity={0.85}
-          >
+          <TouchableOpacity style={styles.cta} onPress={() => setIsConfirmed(true)} activeOpacity={0.85}>
             <Text style={styles.ctaText}>
-              {needsPaywall
-                ? `Download first ${FREE_TIER_LIMIT} free →`
-                : 'Start downloading →'}
+              {needsPaywall ? `Download first ${FREE_TIER_LIMIT} free →` : 'Start downloading →'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -245,7 +238,9 @@ export default function ProcessingScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
-        <Text style={styles.title}>Downloading…</Text>
+        <Text style={styles.title}>
+          {isResume ? 'Downloading remaining…' : 'Downloading…'}
+        </Text>
 
         <View style={styles.statsBox}>
           <BigStat label="Saved" value={progress.saved} color="#4caf50" />
@@ -283,17 +278,9 @@ export default function ProcessingScreen() {
 // ── Sub-components ─────────────────────────────────────────────────────────
 
 function DestOption({
-  label,
-  subtitle,
-  icon,
-  selected,
-  onPress,
+  label, subtitle, icon, selected, onPress,
 }: {
-  label: string;
-  subtitle: string;
-  icon: string;
-  selected: boolean;
-  onPress: () => void;
+  label: string; subtitle: string; icon: string; selected: boolean; onPress: () => void;
 }) {
   return (
     <TouchableOpacity
@@ -311,41 +298,19 @@ function DestOption({
 
 const destStyles = StyleSheet.create({
   option: {
-    flex: 1,
-    backgroundColor: '#111',
-    borderRadius: 14,
-    padding: 16,
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#222',
+    flex: 1, backgroundColor: '#111', borderRadius: 14, padding: 16,
+    alignItems: 'center', borderWidth: 1.5, borderColor: '#222',
   },
-  optionSelected: {
-    borderColor: '#FFFC00',
-    backgroundColor: '#1a1800',
-  },
+  optionSelected: { borderColor: '#FFFC00', backgroundColor: '#1a1800' },
   icon: { fontSize: 26, marginBottom: 8 },
   label: { color: '#888', fontWeight: '700', fontSize: 13, marginBottom: 4, textAlign: 'center' },
   labelSelected: { color: '#FFFC00' },
   subtitle: { color: '#555', fontSize: 11, lineHeight: 15, textAlign: 'center' },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FFFC00',
-    marginTop: 10,
-  },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFFC00', marginTop: 10 },
 });
 
-function Row({
-  label,
-  value,
-  highlight,
-  dim,
-}: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-  dim?: boolean;
+function Row({ label, value, highlight, dim }: {
+  label: string; value: string; highlight?: boolean; dim?: boolean;
 }) {
   return (
     <View style={rowStyles.row}>
@@ -383,84 +348,40 @@ const statStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000' },
   container: { flex: 1, padding: 24 },
-
   title: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 24 },
-
-  summaryBox: {
-    backgroundColor: '#111',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-
+  summaryBox: { backgroundColor: '#111', borderRadius: 12, padding: 16, marginBottom: 16 },
   paywallCard: {
-    backgroundColor: '#1a1400',
-    borderColor: '#3a2e00',
-    borderWidth: 1.5,
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
+    backgroundColor: '#1a1400', borderColor: '#3a2e00',
+    borderWidth: 1.5, borderRadius: 14, padding: 16, marginBottom: 16,
   },
-  paywallCardUnlocked: {
-    backgroundColor: '#061206',
-    borderColor: '#1a3d1a',
-  },
+  paywallCardUnlocked: { backgroundColor: '#061206', borderColor: '#1a3d1a' },
   paywallTitle: { color: '#FFFC00', fontWeight: '800', fontSize: 15, marginBottom: 4 },
   paywallSubtitle: { color: '#888', fontSize: 13, lineHeight: 18, marginBottom: 14 },
   paywallUnlockedTitle: { color: '#4caf50', fontWeight: '700', fontSize: 14 },
-
   unlockBtn: {
-    backgroundColor: '#FFFC00',
-    borderRadius: 10,
-    paddingVertical: 13,
-    alignItems: 'center',
-    marginBottom: 10,
+    backgroundColor: '#FFFC00', borderRadius: 10,
+    paddingVertical: 13, alignItems: 'center', marginBottom: 10,
   },
   unlockBtnText: { color: '#000', fontWeight: '800', fontSize: 15 },
-
   restoreBtn: { alignItems: 'center', paddingVertical: 4 },
   restoreText: { color: '#555', fontSize: 13 },
-
   debugToggle: { marginTop: 10 },
   debugToggleText: { color: '#555', fontSize: 12 },
-
   sectionLabel: {
-    color: '#666',
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 10,
+    color: '#666', fontSize: 12, fontWeight: '600',
+    textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10,
   },
   pickerRow: { flexDirection: 'row', marginBottom: 16, gap: 12 },
-
-  warningBox: {
-    backgroundColor: '#1a0f00',
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 20,
-  },
+  warningBox: { backgroundColor: '#1a0f00', borderRadius: 10, padding: 14, marginBottom: 20 },
   warningText: { color: '#b87333', fontSize: 13, lineHeight: 18 },
-
-  cta: {
-    backgroundColor: '#FFFC00',
-    borderRadius: 14,
-    paddingVertical: 18,
-    alignItems: 'center',
-  },
+  cta: { backgroundColor: '#FFFC00', borderRadius: 14, paddingVertical: 18, alignItems: 'center' },
   ctaText: { color: '#000', fontWeight: '800', fontSize: 17 },
-
   statsBox: {
-    flexDirection: 'row',
-    backgroundColor: '#111',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 24,
+    flexDirection: 'row', backgroundColor: '#111',
+    borderRadius: 12, padding: 20, marginBottom: 24,
   },
-
   progressContainer: { marginBottom: 24, gap: 10 },
   progressLabel: { color: '#666', fontSize: 13, textAlign: 'center' },
-
   cancelBtn: { marginTop: 'auto', alignItems: 'center', paddingVertical: 16 },
   cancelText: { color: '#555', fontSize: 15 },
 });
