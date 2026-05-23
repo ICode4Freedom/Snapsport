@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "SnapsPort",
+    "slug": "snapsport",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.snapsport.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSPhotoLibraryAddUsageDescription": "SnapsPort needs access to save your Snapchat memories to your photo library.",
+        "NSPhotoLibraryUsageDescription": "SnapsPort needs access to save your Snapchat memories to your photo library."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      },
+      "package": "com.snapsport.app",
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-document-picker",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "SnapsPort needs access to save your Snapchat memories to your photo library.",
+          "savePhotosPermission": "SnapsPort needs permission to save photos to your library.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
+    ],
+    "scheme": "snapsport",
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "FREE_TIER_LIMIT": 50
+    }
+  }
+}

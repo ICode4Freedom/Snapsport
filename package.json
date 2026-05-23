@@ -1,0 +1,30 @@
+{
+  "name": "snapsport",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "build:ios": "eas build --platform ios --profile production",
+    "build:ios:preview": "eas build --platform ios --profile preview",
+    "submit:ios": "eas submit --platform ios"
+  },
+  "dependencies": {
+    "expo": "~52.0.0",
+    "expo-document-picker": "~12.0.2",
+    "expo-file-system": "~18.0.6",
+    "expo-media-library": "~16.0.4",
+    "expo-router": "~4.0.17",
+    "expo-status-bar": "~2.0.1",
+    "react": "18.3.2",
+    "react-native": "0.76.5",
+    "react-native-zip-archive": "^6.1.0",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "@types/react": "~18.3.12",
+    "typescript": "^5.3.3"
+  }
+}
