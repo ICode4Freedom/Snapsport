@@ -1,31 +1,27 @@
 {
-  "name": "snapsport",
+  "name": "tmp",
   "version": "1.0.0",
-  "main": "expo-router/entry",
-  "scripts": {
-    "start": "expo start",
-    "ios": "expo run:ios",
-    "android": "expo run:android",
-    "build:ios": "eas build --platform ios --profile production",
-    "build:ios:preview": "eas build --platform ios --profile preview",
-    "submit:ios": "eas submit --platform ios"
-  },
+  "main": "index.ts",
   "dependencies": {
-    "expo": "~52.0.0",
-    "expo-document-picker": "~12.0.2",
-    "expo-file-system": "~18.0.6",
-    "expo-media-library": "~16.0.4",
-    "expo-router": "~4.0.17",
-    "expo-status-bar": "~2.0.1",
-    "react": "18.3.2",
-    "react-native": "0.76.5",
-    "react-native-zip-archive": "^6.1.0",
-    "zustand": "^5.0.2"
+    "expo": "~56.0.4",
+    "expo-document-picker": "~56.0.4",
+    "expo-file-system": "~56.0.7",
+    "expo-media-library": "~56.0.6",
+    "expo-router": "~56.2.6",
+    "expo-status-bar": "~56.0.4",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-zip-archive": "^8.0.1"
   },
   "devDependencies": {
-    "@babel/core": "^7.25.0",
-    "@types/react": "~18.3.12",
-    "babel-plugin-module-resolver": "^5.0.2",
-    "typescript": "^5.3.3"
-  }
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "private": true
 }

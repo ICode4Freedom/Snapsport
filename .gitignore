@@ -15,3 +15,5 @@ web-build/
 .env
 .env.local
 .env.production
+
+UsersmichaAppDataLocalnpm-cache
