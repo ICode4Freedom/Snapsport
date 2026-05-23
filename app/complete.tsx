@@ -4,7 +4,7 @@ import { SafeAreaView, Share, StyleSheet, Text, TouchableOpacity, View } from 'r
 import { useStore } from '../src/store/useStore';
 
 export default function CompleteScreen() {
-  const { progress, reset } = useStore();
+  const { progress, reset, exportDestination } = useStore();
 
   const hasFailures = progress.failed > 0;
 
@@ -33,8 +33,12 @@ export default function CompleteScreen() {
         </Text>
         <Text style={styles.subtitle}>
           Your Snapchat memories are now in{' '}
-          <Text style={styles.highlight}>iCloud Photos</Text> — in the{' '}
-          <Text style={styles.mono}>SnapsPort</Text> album.
+          <Text style={styles.highlight}>iCloud Photos</Text>
+          {exportDestination === 'album' ? (
+            <> — in the <Text style={styles.mono}>SnapsPort</Text> album.</>
+          ) : (
+            <> in your Camera Roll.</>
+          )}
         </Text>
 
         <View style={styles.statsRow}>
@@ -53,7 +57,11 @@ export default function CompleteScreen() {
 
         <View style={styles.nextSteps}>
           <Text style={styles.nextTitle}>What's next</Text>
-          <Text style={styles.nextItem}>📱  Open the Photos app → Albums → SnapsPort</Text>
+          {exportDestination === 'album' ? (
+            <Text style={styles.nextItem}>📱  Open the Photos app → Albums → SnapsPort</Text>
+          ) : (
+            <Text style={styles.nextItem}>📱  Open the Photos app → Camera Roll to see your memories</Text>
+          )}
           <Text style={styles.nextItem}>☁️  iCloud will sync to all your Apple devices automatically</Text>
           <Text style={styles.nextItem}>🗑️  You can now cancel your Snapchat storage subscription</Text>
         </View>

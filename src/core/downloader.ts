@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import { MemoryItem, generateFilename } from './parser';
+import { ExportDestination } from '../store/useStore';
 
 export type DownloadStatus = 'pending' | 'downloading' | 'saved' | 'failed';
 
@@ -26,11 +27,7 @@ const RETRY_DELAY_MS = 1500;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function downloadOne(
-  job: DownloadJob,
-  tempDir: string,
-  attempt = 1
-): Promise<string> {
+async function downloadOne(job: DownloadJob, tempDir: string, attempt = 1): Promise<string> {
   const filename = generateFilename(job.memory, job.index);
   const localUri = `${tempDir}${filename}`;
 
@@ -47,26 +44,29 @@ async function downloadOne(
   return localUri;
 }
 
-async function saveToLibrary(localUri: string): Promise<void> {
+async function saveToLibrary(localUri: string, destination: ExportDestination): Promise<void> {
   const asset = await MediaLibrary.createAssetAsync(localUri);
-  // Try to add to a "SnapsPort" album for organization
-  try {
-    let album = await MediaLibrary.getAlbumAsync('SnapsPort');
-    if (album) {
-      await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
-    } else {
-      await MediaLibrary.createAlbumAsync('SnapsPort', asset, false);
-    }
-  } catch {
-    // Album creation failed — asset is still saved to Camera Roll, which is fine
-  }
 
-  // Clean up temp file
+  if (destination === 'album') {
+    try {
+      let album = await MediaLibrary.getAlbumAsync('SnapsPort');
+      if (album) {
+        await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+      } else {
+        await MediaLibrary.createAlbumAsync('SnapsPort', asset, false);
+      }
+    } catch {
+      // Asset is still saved to Camera Roll even if album creation fails
+    }
+  }
+  // 'camera-roll' just uses createAssetAsync above — no album needed
+
   await FileSystem.deleteAsync(localUri, { idempotent: true });
 }
 
 export async function runDownloadQueue(
   jobs: DownloadJob[],
+  destination: ExportDestination,
   onProgress: ProgressCallback,
   signal: { cancelled: boolean }
 ): Promise<DownloadProgress> {
@@ -95,7 +95,7 @@ export async function runDownloadQueue(
 
       try {
         const localUri = await downloadOne(job, tempDir);
-        await saveToLibrary(localUri);
+        await saveToLibrary(localUri, destination);
         job.status = 'saved';
         progress.saved++;
       } catch (err) {
@@ -109,10 +109,7 @@ export async function runDownloadQueue(
     }
   }
 
-  const workers = Array.from({ length: CONCURRENCY }, () => worker());
-  await Promise.all(workers);
-
-  // Clean up temp dir
+  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
   await FileSystem.deleteAsync(tempDir, { idempotent: true });
 
   return progress;

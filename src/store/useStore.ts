@@ -11,28 +11,28 @@ export type AppPhase =
   | 'complete'
   | 'error';
 
+export type ExportDestination = 'album' | 'camera-roll';
+
 interface AppState {
   phase: AppPhase;
   memories: MemoryItem[];
   jobs: DownloadJob[];
   progress: DownloadProgress;
   error: string | null;
-  isPurchased: boolean;
   cancelSignal: { cancelled: boolean };
   pendingFileUri: string | null;
+  exportDestination: ExportDestination;
 
   setPhase: (phase: AppPhase) => void;
   setMemories: (memories: MemoryItem[]) => void;
-  setJobs: (jobs: DownloadJob[]) => void;
   updateProgress: (progress: DownloadProgress, job: DownloadJob) => void;
   setError: (error: string) => void;
-  setPurchased: (v: boolean) => void;
   cancelDownload: () => void;
   setPendingFileUri: (uri: string | null) => void;
+  setExportDestination: (dest: ExportDestination) => void;
   reset: () => void;
 }
 
-const FREE_TIER_LIMIT = 50;
 const initialProgress: DownloadProgress = { total: 0, saved: 0, failed: 0, active: 0 };
 
 export const useStore = create<AppState>((set, get) => ({
@@ -41,24 +41,21 @@ export const useStore = create<AppState>((set, get) => ({
   jobs: [],
   progress: initialProgress,
   error: null,
-  isPurchased: false,
   cancelSignal: { cancelled: false },
   pendingFileUri: null,
+  exportDestination: 'album',
 
   setPhase: (phase) => set({ phase }),
 
   setMemories: (memories) => {
-    const { isPurchased } = get();
-    const limited = isPurchased ? memories : memories.slice(0, FREE_TIER_LIMIT);
-    const jobs: DownloadJob[] = limited.map((memory, index) => ({
+    // V1: $0.99 paid upfront — no tier limit, everyone gets full access
+    const jobs: DownloadJob[] = memories.map((memory, index) => ({
       memory,
       index,
       status: 'pending',
     }));
     set({ memories, jobs, phase: 'ready' });
   },
-
-  setJobs: (jobs) => set({ jobs }),
 
   updateProgress: (progress, updatedJob) =>
     set((state) => ({
@@ -70,25 +67,13 @@ export const useStore = create<AppState>((set, get) => ({
 
   setError: (error) => set({ error, phase: 'error' }),
 
-  setPurchased: (isPurchased) => {
-    set({ isPurchased });
-    const { memories } = get();
-    if (isPurchased && memories.length > FREE_TIER_LIMIT) {
-      const jobs: DownloadJob[] = memories.map((memory, index) => ({
-        memory,
-        index,
-        status: 'pending',
-      }));
-      set({ jobs });
-    }
-  },
-
   cancelDownload: () => {
-    const { cancelSignal } = get();
-    cancelSignal.cancelled = true;
+    get().cancelSignal.cancelled = true;
   },
 
   setPendingFileUri: (pendingFileUri) => set({ pendingFileUri }),
+
+  setExportDestination: (exportDestination) => set({ exportDestination }),
 
   reset: () =>
     set({
@@ -101,5 +86,3 @@ export const useStore = create<AppState>((set, get) => ({
       pendingFileUri: null,
     }),
 }));
-
-export { FREE_TIER_LIMIT };

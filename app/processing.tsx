@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { ProgressBar } from '../src/components/ProgressBar';
 import { runDownloadQueue } from '../src/core/downloader';
-import { useStore, FREE_TIER_LIMIT } from '../src/store/useStore';
+import { useStore, ExportDestination } from '../src/store/useStore';
 
 export default function ProcessingScreen() {
   const { skipped } = useLocalSearchParams<{ skipped?: string }>();
@@ -18,12 +18,11 @@ export default function ProcessingScreen() {
     jobs,
     memories,
     progress,
-    isPurchased,
     cancelSignal,
     updateProgress,
     cancelDownload,
-    setPhase,
-    setPurchased,
+    exportDestination,
+    setExportDestination,
   } = useStore();
 
   const [hasStarted, setHasStarted] = useState(false);
@@ -32,7 +31,7 @@ export default function ProcessingScreen() {
 
   const total = jobs.length;
   const allMemoriesCount = memories.length;
-  const isLimited = !isPurchased && allMemoriesCount > FREE_TIER_LIMIT;
+  const skippedCount = parseInt(skipped ?? '0', 10);
   const progressRatio = progress.total > 0 ? (progress.saved + progress.failed) / progress.total : 0;
 
   async function startDownload() {
@@ -41,7 +40,7 @@ export default function ProcessingScreen() {
     setHasStarted(true);
     cancelSignal.cancelled = false;
 
-    await runDownloadQueue(jobs, (prog, job) => {
+    await runDownloadQueue(jobs, exportDestination, (prog, job) => {
       updateProgress(prog, job);
     }, cancelSignal);
 
@@ -68,25 +67,7 @@ export default function ProcessingScreen() {
     ]);
   }
 
-  function handleUnlock() {
-    // TODO: integrate RevenueCat for real IAP
-    // For now, simulate purchase
-    Alert.alert(
-      'Unlock All Memories',
-      `Download all ${allMemoriesCount.toLocaleString()} memories for $0.99 (one-time purchase).`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Unlock — $0.99',
-          onPress: () => {
-            setPurchased(true);
-          },
-        },
-      ]
-    );
-  }
-
-  // Confirmation gate before starting
+  // Confirmation + destination picker gate before starting
   if (!isConfirmed) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -96,25 +77,29 @@ export default function ProcessingScreen() {
           <View style={styles.summaryBox}>
             <Row label="Memories found" value={allMemoriesCount.toLocaleString()} />
             <Row label="Will be downloaded" value={total.toLocaleString()} highlight />
-            {parseInt(skipped ?? '0', 10) > 0 && (
-              <Row label="Skipped (missing data)" value={skipped ?? '0'} dim />
+            {skippedCount > 0 && (
+              <Row label="Skipped (missing data)" value={String(skippedCount)} dim />
             )}
           </View>
 
-          {isLimited && (
-            <View style={styles.upgradeBox}>
-              <Text style={styles.upgradeTitle}>
-                Free tier: first {FREE_TIER_LIMIT} memories
-              </Text>
-              <Text style={styles.upgradeText}>
-                You have {allMemoriesCount.toLocaleString()} memories.{' '}
-                Unlock all for a one-time $0.99 payment.
-              </Text>
-              <TouchableOpacity style={styles.unlockBtn} onPress={handleUnlock} activeOpacity={0.85}>
-                <Text style={styles.unlockBtnText}>Unlock all — $0.99</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          {/* Destination picker */}
+          <Text style={styles.sectionLabel}>Save memories to</Text>
+          <View style={styles.pickerRow}>
+            <DestOption
+              label="SnapsPort Album"
+              subtitle="Organized in a dedicated album"
+              icon="📁"
+              selected={exportDestination === 'album'}
+              onPress={() => setExportDestination('album')}
+            />
+            <DestOption
+              label="Camera Roll"
+              subtitle="Blends into your existing photos"
+              icon="🖼️"
+              selected={exportDestination === 'camera-roll'}
+              onPress={() => setExportDestination('camera-roll')}
+            />
+          </View>
 
           <View style={styles.warningBox}>
             <Text style={styles.warningText}>
@@ -142,7 +127,11 @@ export default function ProcessingScreen() {
 
         <View style={styles.statsBox}>
           <BigStat label="Saved" value={progress.saved} color="#4caf50" />
-          <BigStat label="Remaining" value={Math.max(0, progress.total - progress.saved - progress.failed)} color="#FFFC00" />
+          <BigStat
+            label="Remaining"
+            value={Math.max(0, progress.total - progress.saved - progress.failed)}
+            color="#FFFC00"
+          />
           <BigStat label="Failed" value={progress.failed} color="#e53935" />
         </View>
 
@@ -155,7 +144,8 @@ export default function ProcessingScreen() {
 
         <View style={styles.warningBox}>
           <Text style={styles.warningText}>
-            🔒  Don't close the app. Memories are going directly to your iCloud Photos.
+            🔒  Don't close the app. Memories are going directly to your{' '}
+            {exportDestination === 'album' ? 'SnapsPort album' : 'Camera Roll'}.
           </Text>
         </View>
 
@@ -166,6 +156,60 @@ export default function ProcessingScreen() {
     </SafeAreaView>
   );
 }
+
+function DestOption({
+  label,
+  subtitle,
+  icon,
+  selected,
+  onPress,
+}: {
+  label: string;
+  subtitle: string;
+  icon: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[destStyles.option, selected && destStyles.optionSelected]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      <Text style={destStyles.icon}>{icon}</Text>
+      <Text style={[destStyles.label, selected && destStyles.labelSelected]}>{label}</Text>
+      <Text style={destStyles.subtitle}>{subtitle}</Text>
+      {selected && <View style={destStyles.dot} />}
+    </TouchableOpacity>
+  );
+}
+
+const destStyles = StyleSheet.create({
+  option: {
+    flex: 1,
+    backgroundColor: '#111',
+    borderRadius: 14,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#222',
+  },
+  optionSelected: {
+    borderColor: '#FFFC00',
+    backgroundColor: '#1a1800',
+  },
+  icon: { fontSize: 26, marginBottom: 8 },
+  label: { color: '#888', fontWeight: '700', fontSize: 14, marginBottom: 4, textAlign: 'center' },
+  labelSelected: { color: '#FFFC00' },
+  subtitle: { color: '#555', fontSize: 11, lineHeight: 15, textAlign: 'center' },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFFC00',
+    marginTop: 10,
+  },
+});
 
 function Row({
   label,
@@ -221,26 +265,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#111',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 16,
+    marginBottom: 20,
   },
 
-  upgradeBox: {
-    backgroundColor: '#1a1400',
-    borderColor: '#FFFC00',
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+  sectionLabel: {
+    color: '#666',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 10,
   },
-  upgradeTitle: { color: '#FFFC00', fontWeight: '700', fontSize: 14, marginBottom: 4 },
-  upgradeText: { color: '#999', fontSize: 13, lineHeight: 18, marginBottom: 12 },
-  unlockBtn: {
-    backgroundColor: '#FFFC00',
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
+
+  pickerRow: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    gap: 12,
   },
-  unlockBtnText: { color: '#000', fontWeight: '800', fontSize: 15 },
 
   warningBox: {
     backgroundColor: '#1a0f00',
@@ -266,7 +307,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
 
-  progressContainer: { gap: 10, marginBottom: 24 },
+  progressContainer: { marginBottom: 24, gap: 10 },
   progressLabel: { color: '#666', fontSize: 13, textAlign: 'center' },
 
   cancelBtn: { marginTop: 'auto', alignItems: 'center', paddingVertical: 16 },

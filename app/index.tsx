@@ -11,29 +11,70 @@ import {
   View,
 } from 'react-native';
 
-const STEPS = [
+// Email app deep links — tried in order until one opens
+const EMAIL_APPS = [
+  { label: 'Gmail', scheme: 'googlegmail://' },
+  { label: 'Outlook', scheme: 'ms-outlook://' },
+  { label: 'Mail', scheme: 'message://' },
+  { label: 'Mail', scheme: 'mailto:' },
+];
+
+async function openEmailApp() {
+  for (const app of EMAIL_APPS) {
+    try {
+      const supported = await Linking.canOpenURL(app.scheme);
+      if (supported) {
+        await Linking.openURL(app.scheme);
+        return;
+      }
+    } catch {}
+  }
+  await Linking.openURL('mailto:');
+}
+
+async function openSnapchat() {
+  try {
+    const supported = await Linking.canOpenURL('snapchat://');
+    if (supported) {
+      await Linking.openURL('snapchat://');
+      return;
+    }
+  } catch {}
+  await Linking.openURL('https://www.snapchat.com');
+}
+
+interface Step {
+  n: string;
+  emoji: string;
+  title: string;
+  bullets: string[];
+  cta?: { label: string; onPress: () => void };
+}
+
+const STEPS: Step[] = [
   {
     n: '1',
     emoji: '👻',
     title: 'Request your data from Snapchat',
     bullets: [
-      'Tap your Profile icon (top-left)',
+      'Tap your Profile icon (top-left of Snapchat)',
       'Tap ⚙️ Settings → Privacy → My Data',
-      'Toggle ON both: Export your Memories + Export JSON Files',
-      'Select All Time → Submit',
+      'Toggle ON: Export your Memories + Export JSON Files',
+      'Set date range to All Time → Submit',
     ],
-    cta: { label: 'Open Snapchat →', url: 'snapchat://' },
+    cta: { label: 'Open Snapchat →', onPress: openSnapchat },
   },
   {
     n: '2',
     emoji: '📧',
-    title: 'Download from the email Snapchat sends',
+    title: 'Download the ZIP from your email',
     bullets: [
-      'Check your email (arrives in minutes, sometimes up to 1h)',
-      'Look for: "Your Snapchat data is ready" from no-reply@snapchat.com',
-      'Tap the download link → ZIP saves to your phone',
+      'Check email from no-reply@snapchat.com',
+      'Subject: "Your Snapchat data is ready"',
+      'Tap the download link — it saves a ZIP to your phone',
+      'Links expire in 7 days — download soon',
     ],
-    cta: null,
+    cta: { label: 'Open Email App →', onPress: openEmailApp },
   },
   {
     n: '3',
@@ -41,59 +82,61 @@ const STEPS = [
     title: 'Open the ZIP in SnapsPort',
     bullets: [
       'From Mail: long-press the ZIP → Share → SnapsPort',
-      'From Files app: tap the ZIP → Share → SnapsPort',
-      'SnapsPort imports everything automatically',
+      'From Files app: tap the ZIP → Share icon → SnapsPort',
+      'Or tap the button below to select the file manually',
     ],
-    cta: { label: 'I already have my ZIP →', url: null },
+    cta: { label: 'I have my ZIP →', onPress: () => router.push('/import') },
   },
 ];
 
-function StepCard({ step, index }: { step: typeof STEPS[0]; index: number }) {
+function StepCard({ step, delay }: { step: Step; delay: number }) {
   const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(anim, {
       toValue: 1,
-      duration: 400,
-      delay: index * 120,
+      duration: 380,
+      delay,
       useNativeDriver: true,
     }).start();
   }, []);
 
-  const style = {
-    opacity: anim,
-    transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
-  };
-
-  async function handleCta() {
-    if (!step.cta) return;
-    if (step.cta.url) {
-      const supported = await Linking.canOpenURL(step.cta.url);
-      if (supported) Linking.openURL(step.cta.url);
-    } else {
-      router.push('/import');
-    }
-  }
-
   return (
-    <Animated.View style={[styles.card, style]}>
-      <View style={styles.cardHeader}>
+    <Animated.View
+      style={[
+        styles.card,
+        {
+          opacity: anim,
+          transform: [
+            { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) },
+          ],
+        },
+      ]}
+    >
+      {/* Step number row */}
+      <View style={styles.stepRow}>
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{step.n}</Text>
         </View>
-        <Text style={styles.emoji}>{step.emoji}</Text>
-        <Text style={styles.cardTitle}>{step.title}</Text>
+        <Text style={styles.stepEmoji}>{step.emoji}</Text>
       </View>
+
+      {/* Title */}
+      <Text style={styles.cardTitle}>{step.title}</Text>
+
+      {/* Bullets */}
       <View style={styles.bullets}>
         {step.bullets.map((b, i) => (
           <View key={i} style={styles.bulletRow}>
-            <Text style={styles.dot}>·</Text>
+            <Text style={styles.dot}>›</Text>
             <Text style={styles.bulletText}>{b}</Text>
           </View>
         ))}
       </View>
+
+      {/* CTA */}
       {step.cta && (
-        <TouchableOpacity style={styles.cardCta} onPress={handleCta} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.cardCta} onPress={step.cta.onPress} activeOpacity={0.8}>
           <Text style={styles.cardCtaText}>{step.cta.label}</Text>
         </TouchableOpacity>
       )}
@@ -107,7 +150,7 @@ export default function OnboardingScreen() {
   useEffect(() => {
     Animated.timing(headerAnim, {
       toValue: 1,
-      duration: 500,
+      duration: 450,
       useNativeDriver: true,
     }).start();
   }, []);
@@ -115,15 +158,15 @@ export default function OnboardingScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView
-        style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
         <Animated.View
           style={{
             opacity: headerAnim,
-            transform: [{ translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }],
+            transform: [
+              { translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) },
+            ],
           }}
         >
           <Text style={styles.logo}>⚡ SnapsPort</Text>
@@ -132,35 +175,23 @@ export default function OnboardingScreen() {
           </Text>
           <View style={styles.urgencyBadge}>
             <Text style={styles.urgencyText}>
-              ⏰  Snapchat now charges for storage past 5GB — your memories expire soon
+              ⏰  Snapchat now charges for storage past 5GB — act before your links expire
             </Text>
           </View>
         </Animated.View>
 
         <View style={styles.divider} />
 
-        {/* Steps */}
         {STEPS.map((step, i) => (
-          <StepCard key={i} step={step} index={i} />
+          <StepCard key={i} step={step} delay={i * 100} />
         ))}
 
-        {/* Privacy */}
         <View style={styles.privacyBox}>
           <Text style={styles.privacyTitle}>🔒  Your data stays on your phone</Text>
           <Text style={styles.privacyText}>
-            SnapsPort downloads your memories directly from Snapchat to your device — no account, no server, no data shared with us.
+            SnapsPort downloads memories directly from Snapchat to your device. No account, no server, nothing shared with us.
           </Text>
         </View>
-
-        {/* Bottom CTA */}
-        <TouchableOpacity
-          style={styles.mainCta}
-          onPress={() => router.push('/import')}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.mainCtaText}>Select ZIP file manually →</Text>
-        </TouchableOpacity>
-        <Text style={styles.fine}>First 50 memories free · Unlock all for $0.99</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -168,12 +199,16 @@ export default function OnboardingScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000' },
-  scroll: { flex: 1 },
   content: { padding: 22, paddingBottom: 52 },
 
-  logo: { color: '#FFFC00', fontSize: 30, fontWeight: '900', marginBottom: 10 },
-  tagline: { color: '#FFF', fontSize: 17, fontWeight: '600', lineHeight: 24, marginBottom: 14 },
-
+  logo: { color: '#FFFC00', fontSize: 30, fontWeight: '900', marginBottom: 8 },
+  tagline: {
+    color: '#FFF',
+    fontSize: 17,
+    fontWeight: '600',
+    lineHeight: 24,
+    marginBottom: 14,
+  },
   urgencyBadge: {
     backgroundColor: '#120e00',
     borderColor: '#FFFC00',
@@ -193,12 +228,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1e1e1e',
   },
-  cardHeader: {
+  stepRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 14,
-    flexWrap: 'wrap',
+    marginBottom: 10,
   },
   badge: {
     width: 28,
@@ -207,15 +240,33 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFC00',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 10,
   },
   badgeText: { color: '#000', fontWeight: '900', fontSize: 14 },
-  emoji: { fontSize: 20 },
-  cardTitle: { color: '#FFF', fontWeight: '700', fontSize: 15, flex: 1 },
+  stepEmoji: { fontSize: 20 },
 
-  bullets: { gap: 8, marginBottom: 4 },
-  bulletRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
-  dot: { color: '#FFFC00', fontSize: 18, lineHeight: 20 },
-  bulletText: { color: '#999', fontSize: 13, lineHeight: 19, flex: 1 },
+  cardTitle: {
+    color: '#FFF',
+    fontWeight: '700',
+    fontSize: 15,
+    marginBottom: 12,
+    lineHeight: 21,
+  },
+
+  bullets: { marginBottom: 4 },
+  bulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+  },
+  dot: {
+    color: '#FFFC00',
+    fontSize: 16,
+    lineHeight: 20,
+    width: 16,
+    flexShrink: 0,
+  },
+  bulletText: { color: '#888', fontSize: 13, lineHeight: 19, flex: 1 },
 
   cardCta: {
     marginTop: 14,
@@ -233,20 +284,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     marginTop: 6,
-    marginBottom: 22,
   },
   privacyTitle: { color: '#4caf50', fontWeight: '700', fontSize: 13, marginBottom: 4 },
   privacyText: { color: '#4a7a4a', fontSize: 12, lineHeight: 17 },
-
-  mainCta: {
-    borderColor: '#333',
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  mainCtaText: { color: '#666', fontWeight: '600', fontSize: 15 },
-
-  fine: { color: '#444', fontSize: 12, textAlign: 'center' },
 });
