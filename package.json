@@ -19,6 +19,10 @@
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
     "react-native": "0.85.3",
+    "react-native-gesture-handler": "latest",
+    "react-native-reanimated": "latest",
+    "react-native-safe-area-context": "latest",
+    "react-native-screens": "latest",
     "react-native-zip-archive": "^8.0.1",
     "zustand": "^5.0.2"
   },
