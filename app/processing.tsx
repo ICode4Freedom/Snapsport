@@ -8,9 +8,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { ProgressBar } from '@/components/ProgressBar';
-import { runDownloadQueue } from '@/core/downloader';
-import { useStore, FREE_TIER_LIMIT } from '@/store/useStore';
+import { ProgressBar } from '../src/components/ProgressBar';
+import { runDownloadQueue } from '../src/core/downloader';
+import { useStore, FREE_TIER_LIMIT } from '../src/store/useStore';
 
 export default function ProcessingScreen() {
   const { skipped } = useLocalSearchParams<{ skipped?: string }>();

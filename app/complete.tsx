@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import React from 'react';
 import { SafeAreaView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useStore } from '@/store/useStore';
+import { useStore } from '../src/store/useStore';
 
 export default function CompleteScreen() {
   const { progress, reset } = useStore();

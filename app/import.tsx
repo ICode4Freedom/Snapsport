@@ -13,8 +13,8 @@ import {
   View,
 } from 'react-native';
 import { unzip } from 'react-native-zip-archive';
-import { parseMemoriesJson } from '@/core/parser';
-import { useStore } from '@/store/useStore';
+import { parseMemoriesJson } from '../src/core/parser';
+import { useStore } from '../src/store/useStore';
 
 type ImportPhase = 'idle' | 'picking' | 'extracting' | 'parsing';
 
