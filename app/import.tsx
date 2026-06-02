@@ -20,7 +20,7 @@ type ImportPhase = 'idle' | 'extracting' | 'parsing';
 
 const STATUS: Record<ImportPhase, string> = {
   idle: '',
-  extracting: 'Extracting ZIP…',
+  extracting: 'Extracting ZIP(s)…',
   parsing: 'Reading memories…',
 };
 
@@ -34,7 +34,7 @@ export default function ImportScreen() {
     if (pendingFileUri) {
       const uri = pendingFileUri;
       setPendingFileUri(null);
-      handleImportFromUri(uri);
+      handleImportFromUris([uri]);
     }
   }, []);
 
@@ -59,34 +59,36 @@ export default function ImportScreen() {
       result = await DocumentPicker.getDocumentAsync({
         type: ['application/zip', 'public.zip-archive'],
         copyToCacheDirectory: true,
+        multiple: true,
       });
     } catch {
       return;
     }
 
-    if (result.canceled || !result.assets?.[0]) return;
-    await handleImportFromUri(result.assets[0].uri);
+    if (result.canceled || !result.assets?.length) return;
+    const uris = result.assets.map((a) => a.uri);
+    await handleImportFromUris(uris);
   }
 
-  async function handleImportFromUri(zipUri: string) {
+  async function handleImportFromUris(zipUris: string[]) {
     if (!(await ensurePermission())) return;
 
-    const extractDir = `${FileSystem.cacheDirectory}snapsport_extract/`;
+    const extractDirs = zipUris.map((_, i) => `${FileSystem.cacheDirectory}snapsport_extract_${i}/`);
 
     try {
       setPhase('extracting');
-      await FileSystem.makeDirectoryAsync(extractDir, { intermediates: true });
 
-      // Some URIs from Share Extension are content:// or file:// — normalize
-      const localZip = zipUri.startsWith('file://') ? zipUri : zipUri;
-      await unzip(localZip, extractDir);
+      for (let i = 0; i < zipUris.length; i++) {
+        await FileSystem.makeDirectoryAsync(extractDirs[i], { intermediates: true });
+        await unzip(zipUris[i], extractDirs[i]);
+      }
 
       setPhase('parsing');
-      const jsonPath = await findMemoriesJson(extractDir);
+      const jsonPath = await findMemoriesJson(extractDirs);
       const raw = await FileSystem.readAsStringAsync(jsonPath);
       const { memories, skipped } = parseMemoriesJson(raw);
 
-      await FileSystem.deleteAsync(extractDir, { idempotent: true });
+      await cleanupDirs(extractDirs);
 
       if (memories.length === 0) {
         throw new Error(
@@ -97,7 +99,7 @@ export default function ImportScreen() {
       setMemories(memories);
       router.replace({ pathname: '/processing', params: { skipped: String(skipped) } });
     } catch (err) {
-      await FileSystem.deleteAsync(extractDir, { idempotent: true });
+      await cleanupDirs(extractDirs);
       const msg = err instanceof Error ? err.message : 'Something went wrong';
       setError(msg);
       setPhase('idle');
@@ -119,14 +121,14 @@ export default function ImportScreen() {
           </View>
         ) : (
           <>
-            <Text style={styles.title}>Select your ZIP file</Text>
+            <Text style={styles.title}>Select your ZIP file(s)</Text>
             <Text style={styles.subtitle}>
-              Snapchat emails you a ZIP file containing your memories. Open that ZIP in SnapsPort — tap the button below or use{' '}
+              Snapchat emails you ZIP file(s) containing your memories. You may receive a separate ZIP for your JSON data — select all of them at once. Tap the button below or use{' '}
               <Text style={styles.highlight}>Share → SnapsPort</Text> from your Mail app.
             </Text>
 
             <TouchableOpacity style={styles.primaryBtn} onPress={handlePickFile} activeOpacity={0.85}>
-              <Text style={styles.primaryBtnText}>📂  Choose ZIP file</Text>
+              <Text style={styles.primaryBtnText}>📂  Choose ZIP file(s)</Text>
             </TouchableOpacity>
 
             <View style={styles.orDivider}>
@@ -158,27 +160,38 @@ export default function ImportScreen() {
   );
 }
 
-async function findMemoriesJson(extractDir: string): Promise<string> {
-  const candidates = [
-    `${extractDir}memories_history.json`,
-    `${extractDir}json/memories_history.json`,
-  ];
+async function findMemoriesJson(extractDirs: string[]): Promise<string> {
+  for (const extractDir of extractDirs) {
+    const candidates = [
+      `${extractDir}memories_history.json`,
+      `${extractDir}json/memories_history.json`,
+    ];
 
-  for (const path of candidates) {
-    const info = await FileSystem.getInfoAsync(path);
-    if (info.exists) return path;
-  }
+    for (const path of candidates) {
+      const info = await FileSystem.getInfoAsync(path);
+      if (info.exists) return path;
+    }
 
-  const contents = await FileSystem.readDirectoryAsync(extractDir);
-  for (const entry of contents) {
-    const sub = `${extractDir}${entry}/memories_history.json`;
-    const info = await FileSystem.getInfoAsync(sub);
-    if (info.exists) return sub;
+    // Try one level of subdirectories
+    try {
+      const contents = await FileSystem.readDirectoryAsync(extractDir);
+      for (const entry of contents) {
+        const sub = `${extractDir}${entry}/memories_history.json`;
+        const info = await FileSystem.getInfoAsync(sub);
+        if (info.exists) return sub;
+      }
+    } catch {
+      // Directory may be empty or unreadable — continue to next ZIP
+    }
   }
 
   throw new Error(
-    'Could not find memories_history.json in the ZIP.\n\nMake sure you selected both "Export your Memories" and "Export JSON Files" in Snapchat → My Data.'
+    'Could not find memories_history.json in the ZIP(s).\n\nMake sure you selected both "Export your Memories" and "Export JSON Files" in Snapchat → My Data. If Snapchat sent multiple ZIP files, select all of them.'
   );
+}
+
+async function cleanupDirs(dirs: string[]) {
+  await Promise.all(dirs.map((d) => FileSystem.deleteAsync(d, { idempotent: true })));
 }
 
 const styles = StyleSheet.create({

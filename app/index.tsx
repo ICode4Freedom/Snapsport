@@ -73,6 +73,7 @@ interface Step {
   emoji: string;
   title: string;
   bullets: string[];
+  checkboxes?: string[];
   cta?: { label: string; onPress: () => void };
 }
 
@@ -84,9 +85,9 @@ const STEPS: Step[] = [
     bullets: [
       'Tap your Profile icon (top-left of Snapchat)',
       'Tap ⚙️ Settings → Privacy → My Data',
-      'Toggle ON: Export your Memories + Export JSON Files',
-      'Set date range to All Time → Submit',
+      'Toggle ON both options below, then set date range to All Time → Submit',
     ],
+    checkboxes: ['Export your Memories', 'Export JSON Files'],
     cta: { label: 'Open Snapchat →', onPress: openSnapchat },
   },
   {
@@ -158,6 +159,20 @@ function StepCard({ step, delay }: { step: Step; delay: number }) {
           </View>
         ))}
       </View>
+
+      {/* Checkboxes */}
+      {step.checkboxes && (
+        <View style={styles.checkboxGroup}>
+          {step.checkboxes.map((label, i) => (
+            <View key={i} style={styles.checkboxRow}>
+              <View style={styles.checkboxBox}>
+                <Text style={styles.checkboxTick}>✓</Text>
+              </View>
+              <Text style={styles.checkboxLabel}>{label}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* CTA */}
       {step.cta && (
@@ -335,6 +350,38 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   bulletText: { color: '#888', fontSize: 13, lineHeight: 19, flex: 1 },
+
+  checkboxGroup: {
+    marginTop: 10,
+    marginBottom: 4,
+    gap: 8,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  checkboxBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    backgroundColor: '#FFFC00',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  checkboxTick: {
+    color: '#000',
+    fontSize: 13,
+    fontWeight: '900',
+    lineHeight: 16,
+  },
+  checkboxLabel: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+  },
 
   cardCta: {
     marginTop: 14,
