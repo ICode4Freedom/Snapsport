@@ -1,7 +1,7 @@
 import Purchases, { LOG_LEVEL } from 'react-native-purchases';
 
 // Get this from https://app.revenuecat.com → Project → API Keys → iOS
-const RC_API_KEY_IOS = 'appl_REPLACE_WITH_YOUR_REVENUECAT_IOS_KEY';
+const RC_API_KEY_IOS = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
 
 // Must match the entitlement identifier you create in the RevenueCat dashboard
 const ENTITLEMENT_ID = 'unlock';
