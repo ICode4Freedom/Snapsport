@@ -18,6 +18,12 @@
           "ms-outlook",
           "ymail",
           "readdle-spark",
+          "protonmail",
+          "snapchat",
+          "googlegmail",
+          "ms-outlook",
+          "ymail",
+          "readdle-spark",
           "protonmail"
         ],
         "CFBundleDocumentTypes": [
@@ -30,21 +36,46 @@
               "public.zip-archive",
               "org.gnu.gnu-zip-archive"
             ]
+          },
+          {
+            "CFBundleTypeName": "ZIP Archive",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "com.pkware.zip-archive",
+              "public.zip-archive",
+              "org.gnu.gnu-zip-archive"
+            ]
           }
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.snapsport.app",
       "permissions": [
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
       ],
       "intentFilters": [
         {
           "action": "VIEW",
-          "data": [{ "mimeType": "application/zip" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "mimeType": "application/zip"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -62,8 +93,13 @@
     ],
     "scheme": "snapsport",
     "extra": {
-      "router": { "origin": false },
-      "FREE_TIER_LIMIT": 50
+      "router": {
+        "origin": false
+      },
+      "FREE_TIER_LIMIT": 50,
+      "eas": {
+        "projectId": "3759f5b0-38e1-4463-8bda-470c29de0a01"
+      }
     }
   }
 }
