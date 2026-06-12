@@ -1,9 +1,19 @@
 import { router, Stack } from 'expo-router';
 import * as Linking from 'expo-linking';
+import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { initRevenueCat, checkUnlockStatus } from '../src/core/revenuecat';
 import { useStore } from '../src/store/useStore';
+
+// Show extraction-complete alerts even when the app is foregrounded
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
+});
 
 function isZipUri(url: string) {
   return url.endsWith('.zip') || url.includes('.zip?') || url.startsWith('file://');

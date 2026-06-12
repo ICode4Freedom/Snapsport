@@ -1,11 +1,13 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
-import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import * as Notifications from 'expo-notifications';
+import { router, useNavigation } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
+  AppState,
+  BackHandler,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -13,21 +15,46 @@ import {
   View,
 } from 'react-native';
 import { unzip } from 'react-native-zip-archive';
+import { ProgressBar } from '../src/components/ProgressBar';
 import { parseMemoriesJson } from '../src/core/parser';
 import { useStore } from '../src/store/useStore';
 
 type ImportPhase = 'idle' | 'extracting' | 'parsing';
 
-const STATUS: Record<ImportPhase, string> = {
-  idle: '',
-  extracting: 'Extracting ZIP(s)…',
-  parsing: 'Reading memories…',
-};
-
 export default function ImportScreen() {
+  const navigation = useNavigation();
   const [phase, setPhase] = useState<ImportPhase>('idle');
+  const [extractProgress, setExtractProgress] = useState(0); // 0–1 overall
+  const [zipStatus, setZipStatus] = useState({ current: 0, total: 0 });
+  const appStateRef = useRef(AppState.currentState);
   const { setMemories, setError, pendingFileUri, setPendingFileUri } = useStore();
   const [mediaPermission, requestPermission] = MediaLibrary.usePermissions();
+
+  const isExtracting = phase === 'extracting';
+  const isLoading = phase !== 'idle';
+
+  // Track whether app is backgrounded so we can notify on completion
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      appStateRef.current = state;
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Disable swipe-back (iOS) and header back button during extraction
+  useEffect(() => {
+    navigation.setOptions({
+      gestureEnabled: !isExtracting,
+      headerLeft: isExtracting ? () => null : undefined,
+    });
+  }, [isExtracting]);
+
+  // Consume Android hardware back press during extraction
+  useEffect(() => {
+    if (!isExtracting) return;
+    const handler = BackHandler.addEventListener('hardwareBackPress', () => true);
+    return () => handler.remove();
+  }, [isExtracting]);
 
   // Auto-import if a file was opened via Share/Open-in
   useEffect(() => {
@@ -49,6 +76,20 @@ export default function ImportScreen() {
       );
     }
     return granted;
+  }
+
+  async function notifyComplete() {
+    try {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') return;
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'ZIP extracted!',
+          body: 'Your memories are ready — tap to continue.',
+        },
+        trigger: null, // fire immediately
+      });
+    } catch {}
   }
 
   async function handlePickFile() {
@@ -73,14 +114,31 @@ export default function ImportScreen() {
   async function handleImportFromUris(zipUris: string[]) {
     if (!(await ensurePermission())) return;
 
-    const extractDirs = zipUris.map((_, i) => `${FileSystem.cacheDirectory}snapsport_extract_${i}/`);
+    const extractDirs = zipUris.map(
+      (_, i) => `${FileSystem.cacheDirectory}snapsport_extract_${i}/`
+    );
 
     try {
       setPhase('extracting');
+      setZipStatus({ current: 0, total: zipUris.length });
+      setExtractProgress(0);
 
       for (let i = 0; i < zipUris.length; i++) {
+        setZipStatus({ current: i + 1, total: zipUris.length });
+        setExtractProgress(i / zipUris.length);
+
         await FileSystem.makeDirectoryAsync(extractDirs[i], { intermediates: true });
-        await unzip(zipUris[i], extractDirs[i]);
+        await unzip(zipUris[i], extractDirs[i], 'UTF-8', (zipProgress) => {
+          // Combine completed ZIPs + current ZIP's progress into an overall 0–1 value
+          setExtractProgress((i + zipProgress) / zipUris.length);
+        });
+      }
+
+      setExtractProgress(1);
+
+      // If the user backgrounded the app, nudge them back
+      if (appStateRef.current !== 'active') {
+        await notifyComplete();
       }
 
       setPhase('parsing');
@@ -103,21 +161,43 @@ export default function ImportScreen() {
       const msg = err instanceof Error ? err.message : 'Something went wrong';
       setError(msg);
       setPhase('idle');
+      setExtractProgress(0);
       Alert.alert('Import failed', msg, [{ text: 'OK' }]);
     }
   }
 
-  const isLoading = phase !== 'idle';
+  const extractLabel =
+    zipStatus.total > 1
+      ? `Extracting ZIP ${zipStatus.current} of ${zipStatus.total}…`
+      : 'Extracting ZIP…';
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
-
         {isLoading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#FFFC00" />
-            <Text style={styles.loadingTitle}>{STATUS[phase]}</Text>
-            <Text style={styles.loadingSubtitle}>Don't close the app</Text>
+            {isExtracting ? (
+              <>
+                <Text style={styles.loadingTitle}>{extractLabel}</Text>
+                <View style={styles.progressWrapper}>
+                  <ProgressBar progress={extractProgress} />
+                  <Text style={styles.progressPct}>
+                    {Math.round(extractProgress * 100)}%
+                  </Text>
+                </View>
+                <Text style={styles.loadingSubtitle}>
+                  You can switch apps — we'll notify you when it's done
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.loadingTitle}>Reading memories…</Text>
+                <View style={styles.progressWrapper}>
+                  <ProgressBar progress={1} />
+                </View>
+                <Text style={styles.loadingSubtitle}>Almost there…</Text>
+              </>
+            )}
           </View>
         ) : (
           <>
@@ -198,9 +278,13 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000' },
   container: { flex: 1, padding: 24, justifyContent: 'center' },
 
-  loadingContainer: { alignItems: 'center', gap: 16 },
+  loadingContainer: { alignItems: 'center', gap: 20 },
   loadingTitle: { color: '#FFF', fontSize: 18, fontWeight: '700' },
-  loadingSubtitle: { color: '#555', fontSize: 14 },
+
+  progressWrapper: { width: '100%', gap: 8 },
+  progressPct: { color: '#FFFC00', fontSize: 13, fontWeight: '600', textAlign: 'right' },
+
+  loadingSubtitle: { color: '#555', fontSize: 13, textAlign: 'center' },
 
   title: { color: '#FFF', fontSize: 24, fontWeight: '800', marginBottom: 12 },
   subtitle: { color: '#777', fontSize: 15, lineHeight: 22, marginBottom: 28 },
