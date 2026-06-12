@@ -73,8 +73,7 @@
           "savePhotosPermission": "SnapsPort needs permission to save photos to your library.",
           "isAccessMediaLocationEnabled": true
         }
-      ],
-      "react-native-purchases"
+      ]
     ],
     "scheme": "snapsport",
     "extra": {
