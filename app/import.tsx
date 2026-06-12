@@ -116,32 +116,42 @@ export default function ImportScreen() {
   async function handleImportFromUris(zipUris: string[]) {
     if (!(await ensurePermission())) return;
 
-    const extractDirs = zipUris.map(
-      (_, i) => `${FileSystem.cacheDirectory}snapsport_extract_${i}/`
-    );
+    // Dirs for ZIPs we've already extracted (for cleanup on error/success)
+    const extractedDirs: string[] = [];
 
     try {
       setPhase('extracting');
       setZipStatus({ current: 0, total: zipUris.length });
       setExtractProgress(0);
 
-      for (let i = 0; i < zipUris.length; i++) {
-        setZipStatus({ current: i + 1, total: zipUris.length });
-        setExtractProgress(i / zipUris.length);
+      // Sort smallest-first: the JSON ZIP is tiny vs. media ZIPs which can be GBs.
+      // This ensures we find memories_history.json early and skip the large ones.
+      const sortedUris = await sortZipsBySize(zipUris);
 
-        await FileSystem.makeDirectoryAsync(extractDirs[i], { intermediates: true });
+      let jsonPath: string | null = null;
+
+      for (let i = 0; i < sortedUris.length; i++) {
+        setZipStatus({ current: i + 1, total: sortedUris.length });
+        setExtractProgress(i / sortedUris.length);
+
+        const extractDir = `${FileSystem.cacheDirectory}snapsport_extract_${i}/`;
+        extractedDirs.push(extractDir);
+
+        await FileSystem.makeDirectoryAsync(extractDir, { intermediates: true });
 
         // react-native-zip-archive needs bare POSIX paths, not file:// URIs.
         // Also decode percent-encoding — Expo Go adds %40, %2F etc. to cacheDirectory.
-        const sourcePath = stripFileUri(zipUris[i]);
-        const targetPath = stripFileUri(extractDirs[i]);
+        const sourcePath = stripFileUri(sortedUris[i]);
+        const targetPath = stripFileUri(extractDir);
 
         await unzip(sourcePath, targetPath, 'UTF-8', (zipProgress) => {
-          // Combine completed ZIPs + current ZIP's progress into an overall 0–1 value
-          // Clamp zipProgress in case the native side emits values outside 0–1
           const pct = Math.min(Math.max(zipProgress, 0), 1);
-          setExtractProgress((i + pct) / zipUris.length);
+          setExtractProgress((i + pct) / sortedUris.length);
         });
+
+        // Stop as soon as we find the JSON — no need to extract the media ZIPs
+        jsonPath = await findMemoriesJsonInDir(extractDir);
+        if (jsonPath) break;
       }
 
       setExtractProgress(1);
@@ -151,12 +161,17 @@ export default function ImportScreen() {
         await notifyComplete();
       }
 
+      if (!jsonPath) {
+        throw new Error(
+          'Could not find memories_history.json in the ZIP(s).\n\nMake sure you selected both "Export your Memories" and "Export JSON Files" in Snapchat → My Data. If Snapchat sent multiple ZIP files, select all of them.'
+        );
+      }
+
       setPhase('parsing');
-      const jsonPath = await findMemoriesJson(extractDirs);
       const raw = await FileSystem.readAsStringAsync(jsonPath);
       const { memories, skipped } = parseMemoriesJson(raw);
 
-      await cleanupDirs(extractDirs);
+      await cleanupDirs(extractedDirs);
 
       if (memories.length === 0) {
         throw new Error(
@@ -167,7 +182,7 @@ export default function ImportScreen() {
       setMemories(memories);
       router.replace({ pathname: '/processing', params: { skipped: String(skipped) } });
     } catch (err) {
-      await cleanupDirs(extractDirs);
+      await cleanupDirs(extractedDirs);
       const msg = err instanceof Error ? err.message : 'Something went wrong';
       setError(msg);
       setPhase('idle');
@@ -250,6 +265,17 @@ export default function ImportScreen() {
   );
 }
 
+async function sortZipsBySize(uris: string[]): Promise<string[]> {
+  const withSizes = await Promise.all(
+    uris.map(async (uri) => {
+      const info = await FileSystem.getInfoAsync(uri, { size: true });
+      const size = info.exists && 'size' in info ? (info.size ?? Infinity) : Infinity;
+      return { uri, size };
+    })
+  );
+  return withSizes.sort((a, b) => a.size - b.size).map((x) => x.uri);
+}
+
 function stripFileUri(uri: string): string {
   const stripped = uri.replace(/^file:\/\//, '');
   try {
@@ -259,39 +285,36 @@ function stripFileUri(uri: string): string {
   }
 }
 
-async function findMemoriesJson(extractDirs: string[]): Promise<string> {
-  for (const extractDir of extractDirs) {
-    const candidates = [
-      `${extractDir}memories_history.json`,
-      `${extractDir}json/memories_history.json`,
-    ];
+// Returns the path to memories_history.json within a single extracted dir, or null if not found.
+async function findMemoriesJsonInDir(extractDir: string): Promise<string | null> {
+  const candidates = [
+    `${extractDir}memories_history.json`,
+    `${extractDir}json/memories_history.json`,
+  ];
 
-    for (const path of candidates) {
-      const info = await FileSystem.getInfoAsync(path);
-      if (info.exists) return path;
-    }
-
-    // Try one level of subdirectories (and their json/ child)
-    // Covers exports like: mydata/memories_history.json  AND  mydata/json/memories_history.json
-    try {
-      const contents = await FileSystem.readDirectoryAsync(extractDir);
-      for (const entry of contents) {
-        const sub = `${extractDir}${entry}/memories_history.json`;
-        const info = await FileSystem.getInfoAsync(sub);
-        if (info.exists) return sub;
-
-        const subJson = `${extractDir}${entry}/json/memories_history.json`;
-        const infoJson = await FileSystem.getInfoAsync(subJson);
-        if (infoJson.exists) return subJson;
-      }
-    } catch {
-      // Directory may be empty or unreadable — continue to next ZIP
-    }
+  for (const path of candidates) {
+    const info = await FileSystem.getInfoAsync(path);
+    if (info.exists) return path;
   }
 
-  throw new Error(
-    'Could not find memories_history.json in the ZIP(s).\n\nMake sure you selected both "Export your Memories" and "Export JSON Files" in Snapchat → My Data. If Snapchat sent multiple ZIP files, select all of them.'
-  );
+  // Try one level of subdirectories (and their json/ child)
+  // Covers exports like: mydata/memories_history.json  AND  mydata/json/memories_history.json
+  try {
+    const contents = await FileSystem.readDirectoryAsync(extractDir);
+    for (const entry of contents) {
+      const sub = `${extractDir}${entry}/memories_history.json`;
+      const info = await FileSystem.getInfoAsync(sub);
+      if (info.exists) return sub;
+
+      const subJson = `${extractDir}${entry}/json/memories_history.json`;
+      const infoJson = await FileSystem.getInfoAsync(subJson);
+      if (infoJson.exists) return subJson;
+    }
+  } catch {
+    // Directory may be empty or unreadable
+  }
+
+  return null;
 }
 
 async function cleanupDirs(dirs: string[]) {
