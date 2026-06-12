@@ -128,9 +128,16 @@ export default function ImportScreen() {
         setExtractProgress(i / zipUris.length);
 
         await FileSystem.makeDirectoryAsync(extractDirs[i], { intermediates: true });
-        await unzip(zipUris[i], extractDirs[i], 'UTF-8', (zipProgress) => {
+
+        // react-native-zip-archive needs bare POSIX paths, not file:// URIs
+        const sourcePath = zipUris[i].replace(/^file:\/\//, '');
+        const targetPath = extractDirs[i].replace(/^file:\/\//, '');
+
+        await unzip(sourcePath, targetPath, 'UTF-8', (zipProgress) => {
           // Combine completed ZIPs + current ZIP's progress into an overall 0–1 value
-          setExtractProgress((i + zipProgress) / zipUris.length);
+          // Clamp zipProgress in case the native side emits values outside 0–1
+          const pct = Math.min(Math.max(zipProgress, 0), 1);
+          setExtractProgress((i + pct) / zipUris.length);
         });
       }
 
@@ -186,7 +193,7 @@ export default function ImportScreen() {
                   </Text>
                 </View>
                 <Text style={styles.loadingSubtitle}>
-                  You can switch apps — we'll notify you when it's done
+                  Large exports may take a minute — you can switch apps and we'll notify you when it's done
                 </Text>
               </>
             ) : (
