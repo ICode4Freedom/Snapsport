@@ -16,24 +16,23 @@ import {
 } from 'react-native';
 import { unzip } from 'react-native-zip-archive';
 import { ProgressBar } from '../src/components/ProgressBar';
-import { parseMemoriesJson } from '../src/core/parser';
+import { scanMediaFiles } from '../src/core/parser';
 import { useStore } from '../src/store/useStore';
 
-type ImportPhase = 'idle' | 'extracting' | 'parsing';
+type ImportPhase = 'idle' | 'extracting' | 'scanning';
 
 export default function ImportScreen() {
   const navigation = useNavigation();
   const [phase, setPhase] = useState<ImportPhase>('idle');
-  const [extractProgress, setExtractProgress] = useState(0); // 0–1 overall
+  const [extractProgress, setExtractProgress] = useState(0);
   const [zipStatus, setZipStatus] = useState({ current: 0, total: 0 });
   const appStateRef = useRef(AppState.currentState);
-  const { setMemories, setError, pendingFileUri, setPendingFileUri } = useStore();
+  const { setMemories, setExtractedDirs, setError, pendingFileUri, setPendingFileUri } = useStore();
   const [mediaPermission, requestPermission] = MediaLibrary.usePermissions();
 
   const isExtracting = phase === 'extracting';
   const isLoading = phase !== 'idle';
 
-  // Track whether app is backgrounded so we can notify on completion
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       appStateRef.current = state;
@@ -41,7 +40,6 @@ export default function ImportScreen() {
     return () => sub.remove();
   }, []);
 
-  // Disable swipe-back (iOS) and header back button during extraction
   useEffect(() => {
     navigation.setOptions({
       gestureEnabled: !isExtracting,
@@ -49,15 +47,12 @@ export default function ImportScreen() {
     });
   }, [isExtracting]);
 
-  // Consume Android hardware back press during extraction
   useEffect(() => {
     if (!isExtracting) return;
     const handler = BackHandler.addEventListener('hardwareBackPress', () => true);
     return () => handler.remove();
   }, [isExtracting]);
 
-  // Auto-import if a file was opened via Share/Open-in.
-  // Depends on pendingFileUri so it fires even when the screen is already mounted.
   useEffect(() => {
     if (pendingFileUri && !isLoading) {
       const uri = pendingFileUri;
@@ -89,7 +84,7 @@ export default function ImportScreen() {
           title: 'ZIP extracted!',
           body: 'Your memories are ready — tap to continue.',
         },
-        trigger: null, // fire immediately
+        trigger: null,
       });
     } catch {}
   }
@@ -116,7 +111,6 @@ export default function ImportScreen() {
   async function handleImportFromUris(zipUris: string[]) {
     if (!(await ensurePermission())) return;
 
-    // Dirs for ZIPs we've already extracted (for cleanup on error/success)
     const extractedDirs: string[] = [];
 
     try {
@@ -124,61 +118,42 @@ export default function ImportScreen() {
       setZipStatus({ current: 0, total: zipUris.length });
       setExtractProgress(0);
 
-      // Sort smallest-first: the JSON ZIP is tiny vs. media ZIPs which can be GBs.
-      // This ensures we find memories_history.json early and skip the large ones.
-      const sortedUris = await sortZipsBySize(zipUris);
-
-      let jsonPath: string | null = null;
-
-      for (let i = 0; i < sortedUris.length; i++) {
-        setZipStatus({ current: i + 1, total: sortedUris.length });
-        setExtractProgress(i / sortedUris.length);
+      for (let i = 0; i < zipUris.length; i++) {
+        setZipStatus({ current: i + 1, total: zipUris.length });
+        setExtractProgress(i / zipUris.length);
 
         const extractDir = `${FileSystem.cacheDirectory}snapsport_extract_${i}/`;
         extractedDirs.push(extractDir);
 
         await FileSystem.makeDirectoryAsync(extractDir, { intermediates: true });
 
-        // react-native-zip-archive needs bare POSIX paths, not file:// URIs.
-        // Also decode percent-encoding — Expo Go adds %40, %2F etc. to cacheDirectory.
-        const sourcePath = stripFileUri(sortedUris[i]);
+        const sourcePath = stripFileUri(zipUris[i]);
         const targetPath = stripFileUri(extractDir);
 
         await unzip(sourcePath, targetPath, 'UTF-8', (zipProgress) => {
           const pct = Math.min(Math.max(zipProgress, 0), 1);
-          setExtractProgress((i + pct) / sortedUris.length);
+          setExtractProgress((i + pct) / zipUris.length);
         });
-
-        // Stop as soon as we find the JSON — no need to extract the media ZIPs
-        jsonPath = await findMemoriesJsonInDir(extractDir);
-        if (jsonPath) break;
       }
 
       setExtractProgress(1);
 
-      // If the user backgrounded the app, nudge them back
       if (appStateRef.current !== 'active') {
         await notifyComplete();
       }
 
-      if (!jsonPath) {
-        throw new Error(
-          'Could not find memories_history.json in the ZIP(s).\n\nMake sure you selected both "Export your Memories" and "Export JSON Files" in Snapchat → My Data. If Snapchat sent multiple ZIP files, select all of them.'
-        );
-      }
-
-      setPhase('parsing');
-      const raw = await FileSystem.readAsStringAsync(jsonPath);
-      const { memories, skipped } = parseMemoriesJson(raw);
-
-      await cleanupDirs(extractedDirs);
+      setPhase('scanning');
+      const { memories, skipped } = await scanMediaFiles(extractedDirs);
 
       if (memories.length === 0) {
+        await cleanupDirs(extractedDirs);
         throw new Error(
-          'No memories with download links found.\n\nMake sure you selected both "Export your Memories" AND "Export JSON Files" when requesting your data from Snapchat.'
+          'No photos or videos found in the ZIP(s).\n\nMake sure you selected the correct Snapchat export file(s) from your data download email.'
         );
       }
 
+      // Keep extractedDirs alive — downloader cleans them up after saving
+      setExtractedDirs(extractedDirs);
       setMemories(memories);
       router.replace({ pathname: '/processing', params: { skipped: String(skipped) } });
     } catch (err) {
@@ -216,7 +191,7 @@ export default function ImportScreen() {
               </>
             ) : (
               <>
-                <Text style={styles.loadingTitle}>Reading memories…</Text>
+                <Text style={styles.loadingTitle}>Scanning for memories…</Text>
                 <View style={styles.progressWrapper}>
                   <ProgressBar progress={1} />
                 </View>
@@ -228,7 +203,7 @@ export default function ImportScreen() {
           <>
             <Text style={styles.title}>Select your ZIP file(s)</Text>
             <Text style={styles.subtitle}>
-              Snapchat emails you ZIP file(s) containing your memories. You may receive a separate ZIP for your JSON data — select all of them at once. Tap the button below or use{' '}
+              Snapchat emails you ZIP file(s) containing your memories. Select all of them at once — SnapsPort will find your photos and videos automatically. Tap the button below or use{' '}
               <Text style={styles.highlight}>Share → SnapsPort</Text> from your Mail app.
             </Text>
 
@@ -251,29 +226,11 @@ export default function ImportScreen() {
                 4. Import starts automatically
               </Text>
             </View>
-
-            <View style={styles.tipCard}>
-              <Text style={styles.tipTitle}>⚠️  Links expire after 7 days</Text>
-              <Text style={styles.tipText}>
-                The download links inside your ZIP expire. Import as soon as you download your Snapchat data.
-              </Text>
-            </View>
           </>
         )}
       </View>
     </SafeAreaView>
   );
-}
-
-async function sortZipsBySize(uris: string[]): Promise<string[]> {
-  const withSizes = await Promise.all(
-    uris.map(async (uri) => {
-      const info = await FileSystem.getInfoAsync(uri, { size: true });
-      const size = info.exists && 'size' in info ? (info.size ?? Infinity) : Infinity;
-      return { uri, size };
-    })
-  );
-  return withSizes.sort((a, b) => a.size - b.size).map((x) => x.uri);
 }
 
 function stripFileUri(uri: string): string {
@@ -283,38 +240,6 @@ function stripFileUri(uri: string): string {
   } catch {
     return stripped;
   }
-}
-
-// Returns the path to memories_history.json within a single extracted dir, or null if not found.
-async function findMemoriesJsonInDir(extractDir: string): Promise<string | null> {
-  const candidates = [
-    `${extractDir}memories_history.json`,
-    `${extractDir}json/memories_history.json`,
-  ];
-
-  for (const path of candidates) {
-    const info = await FileSystem.getInfoAsync(path);
-    if (info.exists) return path;
-  }
-
-  // Try one level of subdirectories (and their json/ child)
-  // Covers exports like: mydata/memories_history.json  AND  mydata/json/memories_history.json
-  try {
-    const contents = await FileSystem.readDirectoryAsync(extractDir);
-    for (const entry of contents) {
-      const sub = `${extractDir}${entry}/memories_history.json`;
-      const info = await FileSystem.getInfoAsync(sub);
-      if (info.exists) return sub;
-
-      const subJson = `${extractDir}${entry}/json/memories_history.json`;
-      const infoJson = await FileSystem.getInfoAsync(subJson);
-      if (infoJson.exists) return subJson;
-    }
-  } catch {
-    // Directory may be empty or unreadable
-  }
-
-  return null;
 }
 
 async function cleanupDirs(dirs: string[]) {
@@ -356,18 +281,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 14,
     padding: 16,
-    marginBottom: 14,
   },
   shareTitle: { color: '#FFF', fontWeight: '700', fontSize: 15, marginBottom: 10 },
   shareSteps: { color: '#777', fontSize: 13, lineHeight: 22 },
-
-  tipCard: {
-    backgroundColor: '#120900',
-    borderColor: '#3a2200',
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-  },
-  tipTitle: { color: '#e09000', fontWeight: '700', fontSize: 13, marginBottom: 4 },
-  tipText: { color: '#7a5500', fontSize: 12, lineHeight: 17 },
 });

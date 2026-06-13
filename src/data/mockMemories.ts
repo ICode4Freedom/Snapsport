@@ -7,13 +7,8 @@ export function generateMockMemories(): MemoryItem[] {
     const d = new Date(Date.now() - i * 86_400_000 * 2);
     return {
       date: d,
-      rawDate: d.toISOString(),
       mediaType: i % 5 === 0 ? 'VIDEO' : 'PHOTO',
-      downloadLink: `https://mock.snapsport.dev/memory-${i}.${i % 5 === 0 ? 'mp4' : 'jpg'}`,
-      location:
-        i % 7 === 0
-          ? { latitude: 40.7128 + i * 0.001, longitude: -74.006 + i * 0.001 }
-          : undefined,
-    };
+      localPath: `file:///mock/snapsport/memory-${i}.${i % 5 === 0 ? 'mp4' : 'jpg'}`,
+    } satisfies MemoryItem;
   });
 }

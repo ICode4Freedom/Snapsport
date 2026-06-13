@@ -35,6 +35,7 @@ export default function ProcessingScreen() {
     setPurchased,
     debugMode,
     setProgress,
+    extractedDirs,
   } = useStore();
 
   const isResume = autoStart === 'true';
@@ -77,7 +78,8 @@ export default function ProcessingScreen() {
         downloadJobs,
         exportDestination,
         (prog, job) => updateProgress(prog, job),
-        cancelSignal
+        cancelSignal,
+        extractedDirs
       );
     }
 
@@ -222,13 +224,13 @@ export default function ProcessingScreen() {
 
           <View style={styles.warningBox}>
             <Text style={styles.warningText}>
-              ⚠️  Keep this screen open during the download. Large libraries may take 10–30 minutes.
+              ⚠️  Keep this screen open while saving. Large libraries may take 10–30 minutes.
             </Text>
           </View>
 
           <TouchableOpacity style={styles.cta} onPress={() => setIsConfirmed(true)} activeOpacity={0.85}>
             <Text style={styles.ctaText}>
-              {needsPaywall ? `Download first ${FREE_TIER_LIMIT} free →` : 'Start downloading →'}
+              {needsPaywall ? `Save first ${FREE_TIER_LIMIT} free →` : 'Start saving →'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -241,7 +243,7 @@ export default function ProcessingScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <Text style={styles.title}>
-          {isResume ? 'Downloading remaining…' : 'Downloading…'}
+          {isResume ? 'Saving remaining…' : 'Saving…'}
         </Text>
 
         <View style={styles.statsBox}>
@@ -264,7 +266,7 @@ export default function ProcessingScreen() {
 
         <View style={styles.warningBox}>
           <Text style={styles.warningText}>
-            🔒  Don't close the app. Memories are going directly to your{' '}
+            🔒  Keep this screen open. Memories are being saved directly to your{' '}
             {exportDestination === 'album' ? 'SnapsPort album' : 'Camera Roll'}.
           </Text>
         </View>

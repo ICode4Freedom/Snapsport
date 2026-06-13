@@ -7,9 +7,9 @@ export const FREE_TIER_LIMIT = 50;
 export type AppPhase =
   | 'onboarding'
   | 'importing'
-  | 'parsing'
+  | 'scanning'
   | 'ready'
-  | 'downloading'
+  | 'saving'
   | 'complete'
   | 'error';
 
@@ -26,9 +26,11 @@ interface AppState {
   exportDestination: ExportDestination;
   isPurchased: boolean;
   debugMode: boolean;
+  extractedDirs: string[];
 
   setPhase: (phase: AppPhase) => void;
   setMemories: (memories: MemoryItem[]) => void;
+  setExtractedDirs: (dirs: string[]) => void;
   updateProgress: (progress: DownloadProgress, job: DownloadJob) => void;
   setError: (error: string) => void;
   cancelDownload: () => void;
@@ -53,6 +55,7 @@ export const useStore = create<AppState>((set, get) => ({
   exportDestination: 'album',
   isPurchased: false,
   debugMode: false,
+  extractedDirs: [],
 
   setPhase: (phase) => set({ phase }),
 
@@ -64,6 +67,8 @@ export const useStore = create<AppState>((set, get) => ({
     }));
     set({ memories, jobs, phase: 'ready' });
   },
+
+  setExtractedDirs: (extractedDirs) => set({ extractedDirs }),
 
   updateProgress: (progress, updatedJob) =>
     set((state) => ({
@@ -99,6 +104,7 @@ export const useStore = create<AppState>((set, get) => ({
       cancelSignal: { cancelled: false },
       pendingFileUri: null,
       debugMode: false,
+      extractedDirs: [],
       // isPurchased intentionally NOT reset — RevenueCat re-checks on startup
     }),
 }));

@@ -16,7 +16,7 @@ export async function runDebugQueue(
   for (const job of jobs) {
     if (signal.cancelled) break;
 
-    job.status = 'downloading';
+    job.status = 'saving';
     progress.active = Math.min(5, total - progress.saved - progress.failed);
     onProgress({ ...progress }, { ...job });
 

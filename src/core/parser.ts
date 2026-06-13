@@ -1,107 +1,109 @@
-// Parses memories_history.json exported from Snapchat's "My Data" page.
-// Snapchat wraps media in a "Saved Media" array. Each item has a date string,
-// media type, and a pre-signed AWS S3 URL that expires ~7 days after export.
-//
-// Actual schema observed from real export (2026):
-//   "Media Type": "Image" | "Video"  (not PHOTO/VIDEO)
-//   "Location": "Latitude, Longitude: 41.88, -87.62"  (string, not object)
-//   "Download Link": "<url>"
-//   "Media Download Url": "<url>"  (alternative URL field, same content)
+import * as FileSystem from 'expo-file-system';
 
 export type MediaType = 'PHOTO' | 'VIDEO';
 
 export interface MemoryItem {
-  date: Date;
-  rawDate: string;
+  localPath: string;
   mediaType: MediaType;
-  downloadLink: string;
-  location?: { latitude: number; longitude: number };
+  date: Date;
 }
 
-export interface ParseResult {
+export interface ScanResult {
   memories: MemoryItem[];
   skipped: number;
 }
 
-interface RawMemory {
-  Date?: string;
-  'Media Type'?: string;
-  'Download Link'?: string;
-  'Media Download Url'?: string;
-  Location?: string;
-}
+const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.heic', '.png']);
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov']);
+const MEDIA_EXTENSIONS = new Set([...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS]);
 
-export function parseMemoriesJson(raw: string): ParseResult {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error('Invalid JSON — make sure you selected memories_history.json');
-  }
-
-  const root = parsed as Record<string, unknown>;
-  const savedMedia = root['Saved Media'];
-
-  if (!Array.isArray(savedMedia)) {
-    throw new Error('Unexpected format — "Saved Media" array not found');
-  }
-
+export async function scanMediaFiles(extractedDirs: string[]): Promise<ScanResult> {
   const memories: MemoryItem[] = [];
   let skipped = 0;
 
-  for (const item of savedMedia as RawMemory[]) {
-    // Try both URL fields — Snapchat uses either depending on export type
-    const link = item['Download Link'] || item['Media Download Url'];
-    const rawDate = item['Date'];
-    const rawType = item['Media Type'];
-
-    if (!link || !rawDate || !rawType) {
-      skipped++;
-      continue;
-    }
-
-    // Snapchat exports "Image" and "Video" (title case)
-    const mediaType = rawType.toLowerCase() === 'video' ? 'VIDEO' : 'PHOTO';
-
-    let date: Date;
-    try {
-      // Snapchat format: "2026-05-16 22:22:54 UTC"
-      date = new Date(rawDate.replace(' UTC', 'Z').replace(' ', 'T'));
-      if (isNaN(date.getTime())) throw new Error();
-    } catch {
-      date = new Date();
-    }
-
-    const memory: MemoryItem = { date, rawDate, mediaType, downloadLink: link };
-
-    const loc = parseLocation(item.Location);
-    if (loc) memory.location = loc;
-
-    memories.push(memory);
+  for (const dir of extractedDirs) {
+    const result = await walkDir(ensureTrailingSlash(dir));
+    memories.push(...result.memories);
+    skipped += result.skipped;
   }
 
-  // Most recent first
   memories.sort((a, b) => b.date.getTime() - a.date.getTime());
 
   return { memories, skipped };
 }
 
-// Parses "Latitude, Longitude: 41.8812, -87.62373" → { latitude, longitude }
-// Returns undefined for missing, malformed, or 0,0 (no-data) coordinates.
-function parseLocation(raw?: string): { latitude: number; longitude: number } | undefined {
-  if (!raw) return undefined;
-  const match = raw.match(/Latitude,\s*Longitude:\s*([-\d.]+),\s*([-\d.]+)/i);
-  if (!match) return undefined;
-  const lat = parseFloat(match[1]);
-  const lon = parseFloat(match[2]);
-  if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) return undefined;
-  return { latitude: lat, longitude: lon };
+async function walkDir(dir: string): Promise<ScanResult> {
+  const memories: MemoryItem[] = [];
+  let skipped = 0;
+
+  let entries: string[];
+  try {
+    entries = await FileSystem.readDirectoryAsync(dir);
+  } catch {
+    return { memories, skipped };
+  }
+
+  for (const entry of entries) {
+    const path = `${dir}${entry}`;
+    const ext = getExtension(entry);
+
+    if (MEDIA_EXTENSIONS.has(ext)) {
+      const mediaType: MediaType = IMAGE_EXTENSIONS.has(ext) ? 'PHOTO' : 'VIDEO';
+      const date = parseDateFromFilename(entry) ?? new Date();
+      memories.push({ localPath: path, mediaType, date });
+    } else if (!ext) {
+      // Likely a directory — recurse
+      try {
+        const info = await FileSystem.getInfoAsync(path);
+        if (info.isDirectory) {
+          const sub = await walkDir(`${path}/`);
+          memories.push(...sub.memories);
+          skipped += sub.skipped;
+        }
+      } catch {
+        skipped++;
+      }
+    }
+  }
+
+  return { memories, skipped };
 }
 
-export function generateFilename(memory: MemoryItem, index: number): string {
-  const d = memory.date;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const datePart = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-  const ext = memory.mediaType === 'VIDEO' ? 'mp4' : 'jpg';
-  return `snap_${datePart}_${String(index).padStart(5, '0')}.${ext}`;
+function getExtension(filename: string): string {
+  const idx = filename.lastIndexOf('.');
+  return idx >= 0 ? filename.slice(idx).toLowerCase() : '';
+}
+
+// Handles Snapchat export filenames like "2024-01-15 12-34-56 UTC.jpg"
+// and common variants like "2024-01-15_12-34-56.jpg" or "20240115_123456.jpg"
+function parseDateFromFilename(filename: string): Date | null {
+  // "YYYY-MM-DD HH-MM-SS" or "YYYY-MM-DD_HH-MM-SS" or "YYYY-MM-DDTHH:MM:SS"
+  const full = filename.match(/(\d{4})-(\d{2})-(\d{2})[\s_T](\d{2})[-:](\d{2})[-:](\d{2})/);
+  if (full) {
+    const [, y, mo, d, h, mi, s] = full;
+    const date = new Date(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`);
+    if (!isNaN(date.getTime())) return date;
+  }
+
+  // "YYYYMMDD_HHMMSS"
+  const compact = filename.match(/(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
+  if (compact) {
+    const [, y, mo, d, h, mi, s] = compact;
+    const date = new Date(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`);
+    if (!isNaN(date.getTime())) return date;
+  }
+
+  // Fall back to date-only "YYYY-MM-DD"
+  const dateOnly = filename.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (dateOnly) {
+    const [, y, mo, d] = dateOnly;
+    const date = new Date(`${y}-${mo}-${d}T00:00:00Z`);
+    if (!isNaN(date.getTime())) return date;
+  }
+
+  return null;
+}
+
+function ensureTrailingSlash(path: string): string {
+  return path.endsWith('/') ? path : `${path}/`;
 }

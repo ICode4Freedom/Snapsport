@@ -215,7 +215,7 @@ export default function OnboardingScreen() {
   function handleDebugImportError() {
     Alert.alert(
       'Import failed',
-      'Could not find memories_history.json in the ZIP.\n\nMake sure you selected both "Export your Memories" and "Export JSON Files" in Snapchat → My Data.',
+      'No photos or videos found in the ZIP.\n\nMake sure you selected the correct Snapchat export file(s) from your data download email.',
       [{ text: 'OK' }]
     );
   }

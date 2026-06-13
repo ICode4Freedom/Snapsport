@@ -1,6 +1,6 @@
 # SnapsPort
 
-Export Snapchat memories directly to iCloud Photos. Zero server — data flows Snapchat S3 → iPhone → iCloud Photos.
+Export Snapchat memories directly to iCloud Photos. Zero server — data flows Snapchat ZIP → iPhone → iCloud Photos.
 
 ## Why it exists
 
@@ -13,20 +13,18 @@ Snapchat introduced a 5 GB free storage cap in September 2025, charging monthly 
 ```
 Snapchat dashboard
        ↓  (user requests export)
-Snapchat email → ZIP with memories_history.json + pre-signed S3 URLs
+Snapchat email → ZIP(s) with jpg/mp4 files + embedded EXIF metadata
        ↓  (user opens ZIP in SnapsPort via Share / Files / picker)
 SnapsPort
-  - Extracts ZIP (react-native-zip-archive)
-  - Parses memories_history.json → MemoryItem[]
-  - Downloads each file directly from S3 (expo-file-system, 5 concurrent)
-  - Saves to Camera Roll or SnapsPort album (expo-media-library)
+  - Extracts ZIP(s) (react-native-zip-archive)
+  - Scans extracted dirs for jpg/jpeg/heic/png/mp4/mov files
+  - Saves each file directly to Camera Roll or SnapsPort album (expo-media-library)
+  - Cleans up extracted files after saving
        ↓
 iCloud Photos (syncs automatically)
 ```
 
-No backend, no account, no data ever leaves the device to our servers.
-
-Pre-signed URLs inside the ZIP expire ~7 days after Snapchat sends the email — the app warns users about this.
+No backend, no account, no data ever leaves the device to our servers. No network requests — everything is local file I/O.
 
 ---
 
@@ -34,7 +32,7 @@ Pre-signed URLs inside the ZIP expire ~7 days after Snapchat sends the email —
 
 - **Free tier:** first 50 memories export for free
 - **Unlock:** $0.99 one-time via RevenueCat (StoreKit 2)
-- The paywall appears on the processing screen before download starts, and again on the complete screen if the user chose the free tier
+- The paywall appears on the processing screen before saving starts, and again on the complete screen if the user chose the free tier
 
 ---
 
@@ -87,14 +85,14 @@ On the complete screen in debug mode, a toggle panel lets you switch between all
 app/
   _layout.tsx        Entry point: RevenueCat init, incoming file URI handler
   index.tsx          Onboarding screen (3-step instructions)
-  import.tsx         ZIP picker + extraction + parsing
-  processing.tsx     Confirmation, paywall, destination picker, download progress
+  import.tsx         ZIP picker + extraction + media scan
+  processing.tsx     Confirmation, paywall, destination picker, save progress
   complete.tsx       Success screen, unlock-remaining upsell, review/share
 
 src/
   core/
-    parser.ts        Parses memories_history.json → MemoryItem[]
-    downloader.ts    Concurrent download queue (5 parallel, 3 retries)
+    parser.ts        Scans extracted dirs for media files → MemoryItem[]
+    downloader.ts    Concurrent save queue (5 parallel, copies to photo library)
     debugQueue.ts    Mock download queue for dev builds (~5s animated progress)
     revenuecat.ts    RevenueCat wrapper: init, purchase, restore, status check
   store/
@@ -115,11 +113,7 @@ eas.json             EAS build profiles (preview → TestFlight, production → 
 
 ### `src/core/parser.ts`
 
-Parses the real Snapchat JSON schema. The export format uses:
-- `"Media Type"`: `"Image"` or `"Video"` (not lowercase)
-- `"Download Link"` or `"Media Download Url"` (tries both)
-- `"Location"`: a string like `"Latitude, Longitude: 41.88, -87.62"` (parsed with regex)
-- Entries with no URL are silently skipped
+Scans extracted ZIP directories recursively for media files (`.jpg`, `.jpeg`, `.heic`, `.png`, `.mp4`, `.mov`). Parses dates from Snapchat export filenames (`2024-01-15 12-34-56 UTC.jpg`) or falls back to `new Date()`. EXIF metadata (date, location) is preserved by `expo-media-library` when files are saved to the photo library.
 
 ### `src/store/useStore.ts`
 
