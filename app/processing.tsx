@@ -66,20 +66,35 @@ export default function ProcessingScreen() {
     startedRef.current = true;
     cancelSignal.cancelled = false;
 
-    // Reset progress so the new batch starts fresh
+    // Carry over saved/failed counts from the free-tier batch so the
+    // completion screen shows the cumulative total, not just this batch.
+    const baseSaved = isResume ? progress.saved : 0;
+    const baseFailed = isResume ? progress.failed : 0;
     if (isResume) {
-      setProgress({ total: downloadJobs.length, saved: 0, failed: 0, active: 0 });
+      setProgress({ total: memories.length, saved: baseSaved, failed: baseFailed, active: 0 });
     }
 
+    // Batch progress is reported relative to its own slice — offset it by
+    // the carried-over base so the store always holds the cumulative total.
+    const handleProgress = (prog: typeof progress, job: Parameters<typeof updateProgress>[1]) =>
+      updateProgress(
+        { ...prog, total: memories.length, saved: baseSaved + prog.saved, failed: baseFailed + prog.failed },
+        job
+      );
+
+    // Only delete the extracted ZIP dirs once nothing is left to download —
+    // a paywalled first batch leaves a remainder that still needs those files.
+    const isFinalBatch = isResume || !needsPaywall;
+
     if (debugMode) {
-      await runDebugQueue(downloadJobs, (prog, job) => updateProgress(prog, job), cancelSignal);
+      await runDebugQueue(downloadJobs, handleProgress, cancelSignal);
     } else {
       await runDownloadQueue(
         downloadJobs,
         exportDestination,
-        (prog, job) => updateProgress(prog, job),
+        handleProgress,
         cancelSignal,
-        extractedDirs
+        isFinalBatch ? extractedDirs : undefined
       );
     }
 
@@ -96,7 +111,15 @@ export default function ProcessingScreen() {
     setPurchasing(true);
     try {
       const result = await purchaseUnlock();
-      if (result === 'purchased') setPurchased(true);
+      if (result === 'purchased') {
+        setPurchased(true);
+      } else {
+        Alert.alert(
+          'Purchase not completed',
+          "The purchase didn't go through — no charge was made. Please try again.",
+          [{ text: 'OK' }]
+        );
+      }
     } catch (err) {
       Alert.alert(
         'Purchase failed',

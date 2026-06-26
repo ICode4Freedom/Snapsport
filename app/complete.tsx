@@ -60,6 +60,12 @@ export default function CompleteScreen() {
           pathname: '/processing',
           params: { autoStart: 'true', startFrom: String(FREE_TIER_LIMIT) },
         });
+      } else {
+        Alert.alert(
+          'Purchase not completed',
+          "The purchase didn't go through — no charge was made. Please try again.",
+          [{ text: 'OK' }]
+        );
       }
     } catch (err) {
       Alert.alert(
