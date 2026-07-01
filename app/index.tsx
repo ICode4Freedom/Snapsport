@@ -254,7 +254,7 @@ export default function OnboardingScreen() {
         <View style={styles.privacyBox}>
           <Text style={styles.privacyTitle}>🔒  Your data stays on your phone</Text>
           <Text style={styles.privacyText}>
-            SnapsPort downloads memories directly from Snapchat to your device. No account, no server, nothing shared with us.
+            SnapsPort reads your Snapchat export ZIP right on your device and saves the photos straight to your library. No account, and we run no servers — your memories never pass through us. Purchases are processed securely by Apple and RevenueCat.
           </Text>
         </View>
 

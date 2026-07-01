@@ -16,8 +16,7 @@ import {
 import { purchaseUnlock, restoreUnlock } from '../src/core/revenuecat';
 import { useStore, FREE_TIER_LIMIT } from '../src/store/useStore';
 
-// Replace with your App Store app ID once published
-const APP_STORE_URL = 'https://apps.apple.com/app/idREPLACE_WITH_APP_ID?action=write-review';
+const APP_STORE_URL = 'https://apps.apple.com/app/id6772678208?action=write-review';
 
 export default function CompleteScreen() {
   const {
